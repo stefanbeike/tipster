@@ -1,0 +1,19 @@
+plugins {
+    id 'base'
+    id 'io.micronaut.application' version '4.6.2' apply false
+}
+
+group = 'com.tipster'
+version = '0.1.0-SNAPSHOT'
+
+tasks.named('build') {
+    dependsOn ':backend:user-service:build'
+    dependsOn ':backend:payment-service:build'
+    dependsOn ':frontend:build'
+}
+
+tasks.named('clean') {
+    dependsOn ':backend:user-service:clean'
+    dependsOn ':backend:payment-service:clean'
+    dependsOn ':frontend:clean'
+}

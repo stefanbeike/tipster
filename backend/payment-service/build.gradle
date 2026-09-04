@@ -1,0 +1,48 @@
+plugins {
+    id 'io.micronaut.application'
+}
+
+group = rootProject.group
+version = rootProject.version
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    annotationProcessor 'io.micronaut:micronaut-http-validation'
+    annotationProcessor 'io.micronaut.serde:micronaut-serde-processor'
+
+    implementation 'io.micronaut:micronaut-http-server-netty'
+    implementation 'io.micronaut.serde:micronaut-serde-jackson'
+    implementation 'io.micronaut.validation:micronaut-validation'
+    implementation 'io.micronaut.sql:micronaut-jdbc-hikari'
+    implementation 'io.micronaut.liquibase:micronaut-liquibase'
+    implementation 'io.micronaut:micronaut-management'
+    runtimeOnly 'ch.qos.logback:logback-classic'
+    runtimeOnly 'org.yaml:snakeyaml'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    testImplementation 'io.micronaut:micronaut-http-client'
+    testImplementation 'io.micronaut.test:micronaut-test-junit5'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+application {
+    mainClass = 'com.tipster.payment.Application'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+micronaut {
+    runtime 'netty'
+    testRuntime 'junit5'
+    processing {
+        incremental true
+        annotations 'com.tipster.payment.*', 'io.micronaut.liquibase.*'
+    }
+}

@@ -1,0 +1,101 @@
+app:
+  name: ${APP_NAME:Tipster}
+
+frontend:
+  base-url: ${FRONTEND_BASE_URL:http://localhost:3000}
+
+micronaut:
+  application:
+    name: user-service
+  server:
+    port: 8081
+    cors:
+      enabled: true
+      configurations:
+        default:
+          allowed-origins:
+            - ${FRONTEND_BASE_URL:http://localhost:3000}
+          allowed-methods: [GET, POST, PUT, DELETE, OPTIONS]
+          allowed-headers: [Content-Type, Authorization, X-Internal-Secret]
+  email:
+    from:
+      email: ${MAIL_FROM_EMAIL:noreply@tipster.local}
+      name: ${MAIL_FROM_NAME:Tipster}
+  security:
+    enabled: true
+    authentication: bearer
+    intercept-url-map:
+      - pattern: /api/status
+        access: isAnonymous()
+      - pattern: /health/**
+        access: isAnonymous()
+      - pattern: /user-service/auth/**
+        access: isAnonymous()
+      - pattern: /user-service/users/register
+        access: isAnonymous()
+      - pattern: /user-service/internal/**
+        access: isAnonymous()
+      - pattern: /**
+        http-method: OPTIONS
+        access: isAnonymous()
+    token:
+      jwt:
+        signatures:
+          secret:
+            validation:
+              secret: ${JWT_SECRET:local-dev-secret-key-please-change-me-1234567890}
+
+endpoints:
+  health:
+    enabled: true
+    sensitive: false
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:local-dev-secret-key-please-change-me-1234567890}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
+
+internal:
+  api-key: ${INTERNAL_API_KEY:local-internal-secret-change-me}
+
+javamail:
+  properties:
+    mail.smtp.host: ${MAIL_HOST:localhost}
+    mail.smtp.port: ${MAIL_PORT:1025}
+    mail.smtp.auth: ${MAIL_SMTP_AUTH:false}
+    mail.smtp.starttls.enable: ${MAIL_SMTP_STARTTLS_ENABLE:false}
+    mail.smtp.connectiontimeout: 10000
+    mail.smtp.timeout: 10000
+    mail.smtp.writetimeout: 10000
+    mail.mime.charset: UTF-8
+  authentication:
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+
+datasources:
+  default:
+    url: ${DATASOURCES_DEFAULT_URL:jdbc:postgresql://localhost:5432/tipsterdb}
+    username: ${DATASOURCES_DEFAULT_USERNAME:postgres}
+    password: ${DATASOURCES_DEFAULT_PASSWORD:dbpass}
+    driver-class-name: org.postgresql.Driver
+    dialect: POSTGRES
+    schema-generate: NONE
+    schema: user_mgmt
+
+jpa:
+  default:
+    properties:
+      hibernate:
+        hbm2ddl:
+          auto: none
+        default_schema: user_mgmt
+
+liquibase:
+  enabled: true
+  datasources:
+    default:
+      enabled: true
+      liquibase-schema: user_mgmt
+      change-log: classpath:db/changelog/changelog-master.xml
+      database-change-log-table-name: user_mgmt_changelog
+      database-change-log-lock-table-name: user_mgmt_changelog_lock

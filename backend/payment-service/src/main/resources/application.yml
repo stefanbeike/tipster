@@ -1,0 +1,30 @@
+micronaut:
+  application:
+    name: payment-service
+  server:
+    port: 8082
+
+endpoints:
+  health:
+    enabled: true
+    sensitive: false
+
+datasources:
+  default:
+    url: ${DATASOURCES_DEFAULT_URL:jdbc:postgresql://localhost:5432/tipsterdb}
+    username: ${DATASOURCES_DEFAULT_USERNAME:postgres}
+    password: ${DATASOURCES_DEFAULT_PASSWORD:dbpass}
+    driver-class-name: org.postgresql.Driver
+    dialect: POSTGRES
+    schema-generate: NONE
+    schema: payment_mgmt
+
+liquibase:
+  enabled: true
+  datasources:
+    default:
+      enabled: true
+      liquibase-schema: payment_mgmt
+      change-log: classpath:db/changelog/changelog-master.xml
+      database-change-log-table-name: payment_mgmt_changelog
+      database-change-log-lock-table-name: payment_mgmt_changelog_lock

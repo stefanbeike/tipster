@@ -1,0 +1,74 @@
+name: tipster
+
+services:
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: tipster-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - tipster-network
+
+  postgres:
+    image: postgres:15
+    container_name: tipsterdb
+    environment:
+      POSTGRES_DB: tipsterdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dbpass
+    ports:
+      - "5432:5432"
+    networks:
+      - tipster-network
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init-schemas.sql:/docker-entrypoint-initdb.d/001-init-schemas.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tipsterdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: tipster-minio
+    command: server --console-address ":9001" /data
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - tipster-network
+    volumes:
+      - minio-data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: tipster-minio-init
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minio minio12345; do
+        echo 'Waiting for MinIO ...';
+        sleep 2;
+      done;
+      mc mb --ignore-existing local/tipster;
+      mc anonymous set download local/tipster;
+      "
+    networks:
+      - tipster-network
+    restart: "no"
+
+volumes:
+  pgdata:
+  minio-data:
+
+networks:
+  tipster-network:
+    name: tipster-network
+    external: true

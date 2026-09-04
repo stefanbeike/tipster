@@ -1,0 +1,5 @@
+CREATE SCHEMA IF NOT EXISTS user_mgmt;
+CREATE SCHEMA IF NOT EXISTS payment_mgmt;
+
+GRANT ALL PRIVILEGES ON SCHEMA user_mgmt TO postgres;
+GRANT ALL PRIVILEGES ON SCHEMA payment_mgmt TO postgres;

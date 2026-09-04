@@ -1,0 +1,12 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'tipster'
+
+include 'backend:user-service'
+include 'backend:payment-service'
+include 'frontend'

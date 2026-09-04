@@ -1,0 +1,36 @@
+plugins {
+    id 'base'
+}
+
+def npmCommand = System.getProperty('os.name').toLowerCase().contains('windows') ? 'npm.cmd' : 'npm'
+
+tasks.register('npmInstall', Exec) {
+    inputs.files 'package.json', 'package-lock.json'
+    outputs.dir 'node_modules'
+    commandLine npmCommand, 'ci'
+}
+
+tasks.register('npmBuild', Exec) {
+    dependsOn 'npmInstall'
+    inputs.dir 'src'
+    inputs.files 'index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts'
+    outputs.dir 'dist'
+    commandLine npmCommand, 'run', 'build'
+}
+
+tasks.named('build') {
+    dependsOn 'npmBuild'
+}
+
+tasks.register('npmTest', Exec) {
+    dependsOn 'npmInstall'
+    commandLine npmCommand, 'run', 'test'
+}
+
+tasks.named('check') {
+    dependsOn 'npmTest'
+}
+
+tasks.named('clean') {
+    delete 'dist'
+}
