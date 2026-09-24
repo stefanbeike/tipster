@@ -2,7 +2,7 @@ app:
   name: ${APP_NAME:Tipster}
 
 frontend:
-  base-url: ${FRONTEND_BASE_URL:http://localhost:3000}
+  base-url: ${FRONTEND_BASE_URL:`http://localhost:3000`}
 
 micronaut:
   application:
@@ -14,7 +14,7 @@ micronaut:
       configurations:
         default:
           allowed-origins:
-            - ${FRONTEND_BASE_URL:http://localhost:3000}
+            - ${FRONTEND_BASE_URL:`http://localhost:3000`}
           allowed-methods: [GET, POST, PUT, DELETE, OPTIONS]
           allowed-headers: [Content-Type, Authorization, X-Internal-Secret]
   email:
@@ -32,6 +32,8 @@ micronaut:
       - pattern: /user-service/auth/**
         access: isAnonymous()
       - pattern: /user-service/users/register
+        access: isAnonymous()
+      - pattern: /user-service/users/public/**
         access: isAnonymous()
       - pattern: /user-service/internal/**
         access: isAnonymous()
@@ -68,13 +70,13 @@ javamail:
     mail.smtp.timeout: 10000
     mail.smtp.writetimeout: 10000
     mail.mime.charset: UTF-8
-  authentication:
-    username: ${MAIL_USERNAME:}
-    password: ${MAIL_PASSWORD:}
+  # MailHog requires no authentication. For authenticated SMTP, set
+  # JAVAMAIL_AUTHENTICATION_USERNAME and JAVAMAIL_AUTHENTICATION_PASSWORD.
+  # An authentication block with an empty username fails bean validation.
 
 datasources:
   default:
-    url: ${DATASOURCES_DEFAULT_URL:jdbc:postgresql://localhost:5432/tipsterdb}
+    url: ${DATASOURCES_DEFAULT_URL:`jdbc:postgresql://localhost:5432/tipsterdb`}
     username: ${DATASOURCES_DEFAULT_USERNAME:postgres}
     password: ${DATASOURCES_DEFAULT_PASSWORD:dbpass}
     driver-class-name: org.postgresql.Driver

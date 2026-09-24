@@ -35,7 +35,8 @@ public class EmailController {
             @Body @Valid UserRequests.SendEmail request,
             @Header("X-Internal-Secret") String providedSecret
     ) {
-        if (!MessageDigest.isEqual(internalSecret, providedSecret.getBytes(StandardCharsets.UTF_8))) {
+        if (providedSecret == null
+                || !MessageDigest.isEqual(internalSecret, providedSecret.getBytes(StandardCharsets.UTF_8))) {
             return HttpResponse.unauthorized();
         }
         emailSendService.sendText(request.to(), request.subject(), request.text());

@@ -1,5 +1,7 @@
 FROM node:20-alpine AS build
 WORKDIR /app
+ARG VITE_STRIPE_PUBLISHABLE_KEY=
+ENV VITE_STRIPE_PUBLISHABLE_KEY=$VITE_STRIPE_PUBLISHABLE_KEY
 
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund \
@@ -9,10 +11,6 @@ RUN npm ci --no-audit --no-fund \
     --fetch-retry-maxtimeout=120000
 
 COPY . .
-ARG VITE_USER_API_URL=http://localhost:8081
-ARG VITE_PAYMENT_API_URL=http://localhost:8082
-ENV VITE_USER_API_URL=${VITE_USER_API_URL}
-ENV VITE_PAYMENT_API_URL=${VITE_PAYMENT_API_URL}
 RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime

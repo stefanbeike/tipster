@@ -5,6 +5,7 @@ import com.tipster.user.api.UserResponses;
 import com.tipster.user.domain.UserEntity;
 import com.tipster.user.repository.UserRepository;
 import com.tipster.user.service.EmailVerificationService;
+import com.tipster.user.service.PaymentUrlPoolService;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.annotation.Body;
 import io.micronaut.http.annotation.Controller;
@@ -25,11 +26,13 @@ import java.util.UUID;
 public class UserController {
     private final UserRepository userRepository;
     private final EmailVerificationService emailVerificationService;
+    private final PaymentUrlPoolService paymentUrlPoolService;
 
-    public UserController(UserRepository userRepository, EmailVerificationService emailVerificationService) {
-        this.userRepository = userRepository;
-        this.emailVerificationService = emailVerificationService;
+    public UserController(UserRepository userRepository, EmailVerificationService emailVerificationService, PaymentUrlPoolService paymentUrlPoolService) {
+        this.userRepository = userRepository; this.emailVerificationService = emailVerificationService; this.paymentUrlPoolService = paymentUrlPoolService;
     }
+
+    public UserController(UserRepository userRepository, EmailVerificationService emailVerificationService) { this(userRepository, emailVerificationService, null); }
 
     @Secured(SecurityRule.IS_ANONYMOUS)
     @Post("/register")
@@ -40,6 +43,9 @@ public class UserController {
         }
         if (!request.password().equals(request.confirmPassword())) {
             return HttpResponse.badRequest(new UserResponses.Message("Passwörter stimmen nicht überein"));
+        }
+        if (!com.tipster.user.service.ProfileImageValidator.isValid(request.profileImage())) {
+            return HttpResponse.badRequest(new UserResponses.Message("Ungültiges Profilbild. Bitte wähle das Bild erneut aus."));
         }
         String email = request.email().toLowerCase();
         if (userRepository.existsByEmail(email)) {
@@ -59,10 +65,19 @@ public class UserController {
         user.setPhone(request.phone());
         user.setAgbAcceptedFile(request.agbFileName());
         user.setPrivacyPolicy(request.privacyPolicy());
+        user.setProfileImage(request.profileImage());
 
         UserEntity saved = userRepository.save(user);
+        if (paymentUrlPoolService != null) { saved.setPaymentUrlPath(paymentUrlPoolService.assign(saved)); saved = userRepository.update(saved); }
         emailVerificationService.createAndSend(saved);
         return HttpResponse.created(URI.create("/user-service/users/" + saved.getId()));
+    }
+
+    @Secured(SecurityRule.IS_ANONYMOUS)
+    @Get("/public/payment/{path}")
+    public HttpResponse<?> publicPaymentProfile(String path) {
+        UserEntity user = paymentUrlPoolService.userForPath(path);
+        return user == null ? HttpResponse.notFound() : HttpResponse.ok(UserResponses.PublicProfile.from(user));
     }
 
     @Secured(SecurityRule.IS_AUTHENTICATED)
@@ -71,6 +86,14 @@ public class UserController {
     public HttpResponse<?> showProfile(Authentication authentication) {
         return authenticatedUser(authentication)
                 .map(user -> HttpResponse.ok(UserResponses.Profile.from(user)))
+                .orElseGet(HttpResponse::notFound);
+    }
+
+    @Secured(SecurityRule.IS_ANONYMOUS)
+    @Get("/public/{id}")
+    public HttpResponse<?> publicProfile(UUID id) {
+        return userRepository.findById(id)
+                .map(user -> HttpResponse.ok(UserResponses.PublicProfile.from(user)))
                 .orElseGet(HttpResponse::notFound);
     }
 
@@ -86,6 +109,10 @@ public class UserController {
             return HttpResponse.notFound(new UserResponses.Message("Benutzer wurde nicht gefunden"));
         }
         UserEntity user = maybeUser.get();
+
+        if (!com.tipster.user.service.ProfileImageValidator.isValid(request.profileImage())) {
+            return HttpResponse.badRequest(new UserResponses.Message("Ungültiges Profilbild. Bitte wähle das Bild erneut aus."));
+        }
 
         if (request.currentPassword() != null && !request.currentPassword().isBlank()) {
             if (!BCrypt.checkpw(request.currentPassword(), user.getPasswordHash())) {
@@ -108,6 +135,8 @@ public class UserController {
         user.setPhone(request.phone());
         user.setCountry(request.country());
         user.setNewsletter(Boolean.TRUE.equals(request.newsletter()));
+        user.setProfileImage(request.profileImage());
+        if (request.paymentEnabled() != null) user.setPaymentEnabled(request.paymentEnabled());
         return HttpResponse.ok(UserResponses.Profile.from(userRepository.update(user)));
     }
 

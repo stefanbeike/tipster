@@ -39,14 +39,24 @@ public final class UserResponses {
             boolean newsletter,
             String agbAcceptedFile,
             OffsetDateTime createdAt,
-            OffsetDateTime updatedAt
+            OffsetDateTime updatedAt,
+            String profileImage,
+            String paymentUrl,
+            boolean paymentEnabled
     ) {
         public static Profile from(UserEntity user) {
             return new Profile(
                     user.getId(), user.getEmail(), user.isEmailVerified(), user.getFirstName(), user.getLastName(),
                     user.getOrganisation(), user.getStreet(), user.getCity(), user.getPhone(), user.getCountry(),
-                    user.isNewsletter(), user.getAgbAcceptedFile(), user.getCreatedAt(), user.getUpdatedAt()
+                    user.isNewsletter(), user.getAgbAcceptedFile(), user.getCreatedAt(), user.getUpdatedAt(), user.getProfileImage(), user.getPaymentUrlPath(), user.isPaymentEnabled()
             );
+        }
+    }
+
+    @Serdeable
+    public record PublicProfile(UUID userId, String firstName, String lastName, String organisation, String profileImage, String paymentUrl, boolean paymentEnabled) {
+        public static PublicProfile from(UserEntity user) {
+            return new PublicProfile(user.getId(), user.getFirstName(), user.getLastName(), user.getOrganisation(), user.getProfileImage(), user.getPaymentUrlPath(), user.isPaymentEnabled());
         }
     }
 }

@@ -4,4 +4,10 @@
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
     <include file="user_mgmt/001_init.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/002_profile_image.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/003_payment_url_pool.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/004_remove_capacity_alert.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/005_payment_url_full_link.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/006_remove_payment_path.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/007_payment_enabled.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

@@ -34,7 +34,8 @@ public final class UserRequests {
             String country,
             String phone,
             String agbFileName,
-            String privacyPolicy
+            String privacyPolicy,
+            @Size(max = 140000) String profileImage
     ) {
     }
 
@@ -64,8 +65,16 @@ public final class UserRequests {
             Boolean newsletter,
             String currentPassword,
             @Size(min = 8) String newPassword,
-            String confirmPassword
+            String confirmPassword,
+            @Size(max = 140000) String profileImage,
+            Boolean paymentEnabled
     ) {
+        public ProfileUpdate(String firstName, String lastName, String organisation, String street, String city,
+                             String phone, String country, Boolean newsletter, String currentPassword,
+                             String newPassword, String confirmPassword, String profileImage) {
+            this(firstName, lastName, organisation, street, city, phone, country, newsletter, currentPassword,
+                    newPassword, confirmPassword, profileImage, null);
+        }
     }
 
     @Serdeable

@@ -4,4 +4,7 @@
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
     <include file="payment_mgmt/001_init.sql" relativeToChangelogFile="true"/>
+    <include file="payment_mgmt/002_transactions.sql" relativeToChangelogFile="true"/>
+    <include file="payment_mgmt/003_connect_accounts.sql" relativeToChangelogFile="true"/>
+    <include file="payment_mgmt/004_payment_method.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

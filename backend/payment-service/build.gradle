@@ -10,18 +10,24 @@ repositories {
 }
 
 dependencies {
+    compileOnly 'org.projectlombok:lombok:1.18.32'
+    annotationProcessor 'org.projectlombok:lombok:1.18.32'
     annotationProcessor 'io.micronaut:micronaut-http-validation'
     annotationProcessor 'io.micronaut.serde:micronaut-serde-processor'
 
     implementation 'io.micronaut:micronaut-http-server-netty'
     implementation 'io.micronaut.serde:micronaut-serde-jackson'
     implementation 'io.micronaut.validation:micronaut-validation'
+    implementation 'io.micronaut.security:micronaut-security-jwt'
+    implementation 'io.micronaut.data:micronaut-data-hibernate-jpa'
     implementation 'io.micronaut.sql:micronaut-jdbc-hikari'
     implementation 'io.micronaut.liquibase:micronaut-liquibase'
     implementation 'io.micronaut:micronaut-management'
     runtimeOnly 'ch.qos.logback:logback-classic'
     runtimeOnly 'org.yaml:snakeyaml'
     runtimeOnly 'org.postgresql:postgresql'
+    runtimeOnly 'org.hibernate.orm:hibernate-core'
+    runtimeOnly 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
 
     testImplementation 'io.micronaut:micronaut-http-client'
     testImplementation 'io.micronaut.test:micronaut-test-junit5'
@@ -32,9 +38,23 @@ application {
     mainClass = 'com.tipster.payment.Application'
 }
 
+// IntelliJ's Gradle runner does not load a root .env file by itself. Forward
+// the local development Stripe key to the Micronaut process when present.
+def localEnvFile = rootProject.file('.env')
+tasks.named('run') {
+    if (!System.getenv('STRIPE_SECRET_KEY') && localEnvFile.isFile()) {
+        def stripeLine = localEnvFile.readLines().find { it.startsWith('STRIPE_SECRET_KEY=') }
+        if (stripeLine) environment 'STRIPE_SECRET_KEY', stripeLine.substring('STRIPE_SECRET_KEY='.length()).trim()
+    }
+    if (!System.getenv('STRIPE_WEBHOOK_SECRET') && localEnvFile.isFile()) {
+        def webhookLine = localEnvFile.readLines().find { it.startsWith('STRIPE_WEBHOOK_SECRET=') }
+        if (webhookLine && !webhookLine.endsWith('replace_me')) environment 'STRIPE_WEBHOOK_SECRET', webhookLine.substring('STRIPE_WEBHOOK_SECRET='.length()).trim()
+    }
+}
+
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(17)
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 

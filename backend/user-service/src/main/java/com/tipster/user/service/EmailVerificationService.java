@@ -24,7 +24,7 @@ public class EmailVerificationService {
             EmailVerificationTokenRepository tokenRepository,
             UserRepository userRepository,
             EmailSendService emailSendService,
-            @Value("${frontend.base-url:http://localhost:3000}") String frontendBaseUrl
+            @Value("${frontend.base-url:`http://localhost:3000`}") String frontendBaseUrl
     ) {
         this.tokenRepository = tokenRepository;
         this.userRepository = userRepository;

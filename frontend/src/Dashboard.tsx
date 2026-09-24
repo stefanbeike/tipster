@@ -1,0 +1,211 @@
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
+import { api, type Session } from './api'
+import { prepareProfileImage } from './profileImage'
+import { stripePublishableKey } from './stripe'
+import './dashboard.css'
+
+export interface Profile { paymentUrl?: string | null; paymentEnabled?: boolean; profileImage?: string | null; email: string; firstName?: string; lastName?: string; organisation?: string; street?: string; city?: string; phone?: string; country?: string; newsletter?: boolean }
+interface ConnectedAccount { stripeAccountId?: string; onboardingStatus: string; chargesEnabled: boolean; payoutsEnabled: boolean; detailsSubmitted: boolean; payoutScheduleInterval: string }
+type Transaction = { id: string; date: string; name: string; note: string; amount: number; status: 'Gebucht' | 'Ausstehend' | 'Fehlgeschlagen' | 'Erstattet'; type: 'Trinkgeld' | 'Auszahlung' | 'Erstattung'; paymentMethod?: string | null }
+type ApiTransaction = { id: string; amountMinor: number; type: string; status: string; description?: string | null; reference?: string | null; paymentMethod?: string | null; createdAt?: string }
+export const transactions: Transaction[] = [
+  { id: 'DEMO-1008', date: '2026-09-13', name: 'Sophie M.', note: 'Danke für den tollen Service! ♡', amount: 12, status: 'Gebucht', type: 'Trinkgeld' },
+  { id: 'DEMO-1007', date: '2026-09-13', name: 'Ein zufriedener Gast', note: 'Ein kleines Dankeschön', amount: 5, status: 'Gebucht', type: 'Trinkgeld' },
+  { id: 'DEMO-1006', date: '2026-09-12', name: 'Jonas K.', note: 'Wir kommen gerne wieder.', amount: 8.5, status: 'Ausstehend', type: 'Trinkgeld' },
+  { id: 'DEMO-1005', date: '2026-09-12', name: 'Auszahlung auf dein Bankkonto', note: 'Deine gesammelten Trinkgelder', amount: -75, status: 'Gebucht', type: 'Auszahlung' },
+  { id: 'DEMO-1004', date: '2026-09-11', name: 'Marie & Paul', note: 'Für einen schönen Abend', amount: 20, status: 'Gebucht', type: 'Trinkgeld' },
+  { id: 'DEMO-1003', date: '2026-09-10', name: 'Ein zufriedener Gast', note: 'Ein kleines Dankeschön', amount: 7.5, status: 'Gebucht', type: 'Trinkgeld' },
+  { id: 'DEMO-1002', date: '2026-09-09', name: 'Lena B.', note: 'Du hast unseren Tag schöner gemacht.', amount: 15, status: 'Gebucht', type: 'Trinkgeld' },
+  { id: 'DEMO-1001', date: '2026-09-08', name: 'Tisch 12', note: 'Vielen Dank vom ganzen Team!', amount: 50, status: 'Gebucht', type: 'Trinkgeld' },
+]
+const money = (value: number) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(value)
+const transactionDate = (value: string) => {
+  const hasTime = value.includes('T')
+  const parsed = new Date(hasTime ? value : value + 'T12:00:00')
+  const formatted = parsed.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
+  return hasTime ? `${formatted}, ${parsed.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}` : formatted
+}
+const transactionDay = (value: string) => new Date(value.includes('T') ? value : value + 'T12:00:00').toISOString().slice(0, 10)
+const paymentMethodLabel = (method?: string | null) => method === 'paypal' ? 'PayPal' : method === 'apple_pay' ? 'Apple Pay' : method === 'google_pay' ? 'Google Pay' : method === 'card' ? 'Karte' : method ? method : 'Zahlungsart unbekannt'
+const paymentMethodIcon = (method?: string | null) => method === 'paypal' ? 'P' : method === 'apple_pay' ? '' : method === 'google_pay' ? 'G' : '▣'
+export function csvContent(rows: Transaction[]) {
+  return '\uFEFF' + [['Referenz', 'Datum', 'Name', 'Typ', 'Status', 'Betrag EUR'], ...rows.map(t => [t.id, t.date, t.name, t.type, t.status, t.amount.toFixed(2).replace('.', ',')])].map(row => row.map(cell => `"${cell.replaceAll('"', '""')}"`).join(';')).join('\r\n')
+}
+function download(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+export function Dashboard({ session, profile, onProfile, onLogout }: { session: Session; profile: Profile; onProfile: (profile: Profile) => void; onLogout: (...args: any[]) => void }) {
+  const [active, setActive] = useState(profile.paymentEnabled !== false)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState('Alle')
+  const [period, setPeriod] = useState('Alle')
+  const [pageSize, setPageSize] = useState(50)
+  const [page, setPage] = useState(1)
+  const [editing, setEditing] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [profileImage, setProfileImage] = useState<string | null | undefined>(profile.profileImage)
+  const [connectedAccount, setConnectedAccount] = useState<ConnectedAccount | null>(null)
+  const [accountTransactions, setAccountTransactions] = useState<Transaction[]>([])
+  const [payoutAmount, setPayoutAmount] = useState('')
+  const [payoutError, setPayoutError] = useState('')
+  const [transactionsVersion, setTransactionsVersion] = useState(0)
+  const [onboardingOpen, setOnboardingOpen] = useState(false)
+  const [onboardingClientSecret, setOnboardingClientSecret] = useState<string | null>(null)
+  const onboardingContainer = useRef<HTMLDivElement>(null)
+  const sessionExpiresAt = useMemo(() => { try { const payload = session.accessToken.split('.')[1]; const exp = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))).exp; return Number.isFinite(exp) ? exp * 1000 : Date.now() + 3600000 } catch { return Date.now() + 3600000 } }, [session.accessToken])
+  const [sessionRemaining, setSessionRemaining] = useState(() => Math.max(0, sessionExpiresAt - Date.now()))
+  useEffect(() => {
+    let cancelled = false
+    api<ConnectedAccount>('/payment-service/connect-account', undefined, session.accessToken)
+      .then(async account => {
+        if (account.stripeAccountId && !account.stripeAccountId.startsWith('acct_demo_')) {
+          try { account = await api<ConnectedAccount>('/payment-service/connect-account/sync', {}, session.accessToken) } catch { /* Keep the last persisted state when Stripe is temporarily unavailable. */ }
+        }
+        if (!cancelled) setConnectedAccount(account)
+      })
+      .catch(() => { /* No connected account exists yet. */ })
+    return () => { cancelled = true }
+  }, [session.accessToken])
+  useEffect(() => {
+    let cancelled = false
+    const loadTransactions = () => {
+      api<ApiTransaction[]>('/payment-service/transactions', undefined, session.accessToken)
+        .then(items => {
+          if (cancelled) return
+          setAccountTransactions(items.map(item => ({
+            id: item.id,
+            date: item.createdAt || new Date().toISOString(),
+            name: item.type === 'PAYOUT' ? 'Auszahlung auf dein Bankkonto' : item.type === 'REFUND' ? 'Erstattung' : 'Trinkgeld',
+            note: item.description || item.reference || '',
+            amount: item.amountMinor / 100,
+            status: item.status === 'BOOKED' || item.status === 'COMPLETED' ? 'Gebucht' : item.status === 'REFUNDED' ? 'Erstattet' : item.status === 'FAILED' || item.status === 'CANCELLED' ? 'Fehlgeschlagen' : 'Ausstehend',
+            type: item.type === 'PAYOUT' ? 'Auszahlung' : item.type === 'REFUND' ? 'Erstattung' : 'Trinkgeld',
+            paymentMethod: item.paymentMethod,
+          })))
+        })
+        .catch(() => { if (!cancelled) setAccountTransactions([]) })
+    }
+    loadTransactions()
+    const timer = window.setInterval(loadTransactions, 120000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [session.accessToken, transactionsVersion])
+  useEffect(() => { const timer = window.setInterval(() => { const remaining = Math.max(0, sessionExpiresAt - Date.now()); setSessionRemaining(remaining); if (remaining <= 0) { window.clearInterval(timer); onLogout(true) } }, 1000); return () => window.clearInterval(timer) }, [sessionExpiresAt, onLogout])
+  const onboardingReady = connectedAccount?.chargesEnabled && connectedAccount?.payoutsEnabled
+  async function startOnboarding() { try { const account = await api<ConnectedAccount & { onboardingClientSecret?: string }>('/payment-service/connect-account/onboarding/start', {}, session.accessToken); setConnectedAccount(account); setOnboardingClientSecret(account.onboardingClientSecret || null); setOnboardingOpen(true) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Stripe-Onboarding konnte nicht gestartet werden.') } }
+  async function requestPayout() {
+    setPayoutError('')
+    const parsed = Number(payoutAmount.replace(',', '.'))
+    const available = Math.max(0, balance)
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > available) {
+      setPayoutError(`Auszahlungsbetrag muss zwischen 1,00 EUR und ${money(available)} liegen.`)
+      return
+    }
+    try {
+      await api('/payment-service/payouts', { amountMinor: Math.round(parsed * 100) }, session.accessToken)
+      setNotice('Auszahlung wurde bei Stripe angefordert.')
+      setPayoutAmount('')
+      setTransactionsVersion(value => value + 1)
+    } catch (cause) { setPayoutError(cause instanceof Error ? cause.message : 'Auszahlung konnte nicht angefordert werden.') }
+  }
+  useEffect(() => { if (!onboardingOpen || !onboardingClientSecret || !stripePublishableKey || !onboardingContainer.current) return; let element: HTMLElement | undefined; import('@stripe/connect-js').then(({ loadConnectAndInitialize }) => { const connect = loadConnectAndInitialize({ publishableKey: stripePublishableKey, fetchClientSecret: async () => onboardingClientSecret }); element = connect.create('account-onboarding') as unknown as HTMLElement; onboardingContainer.current?.appendChild(element) }); return () => { element?.remove() } }, [onboardingOpen, onboardingClientSecret])
+  async function completeDemoOnboarding() { try { const account = await api<ConnectedAccount>('/payment-service/connect-account/onboarding/demo-complete', {}, session.accessToken); setConnectedAccount(account); setOnboardingOpen(false); setNotice('Stripe Connect Onboarding abgeschlossen. Trinkgelder sind jetzt aktiv.') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Onboarding konnte nicht abgeschlossen werden.') } }
+  async function syncOnboarding() { try { const account = await api<ConnectedAccount>('/payment-service/connect-account/sync', {}, session.accessToken); setConnectedAccount(account); if (account.chargesEnabled && account.payoutsEnabled) { setOnboardingOpen(false); setNotice('Stripe Connect ist vollständig eingerichtet. Trinkgelder sind aktiv.') } else setNotice('Stripe benötigt noch Angaben für die Freischaltung.') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Stripe-Status konnte nicht geprüft werden.') } }
+  const paymentLink = profile.paymentUrl || `${location.origin}/pay/${encodeURIComponent(session.userId)}`
+  const nowForFilter = new Date()
+  const periodStart = new Date(nowForFilter)
+  periodStart.setHours(0, 0, 0, 0)
+  if (period === 'Diese Woche') { const day = periodStart.getDay() || 7; periodStart.setDate(periodStart.getDate() - day + 1) }
+  if (period === 'Diesen Monat') periodStart.setDate(1)
+  if (period === 'Letzte 30 Tage') periodStart.setDate(periodStart.getDate() - 29)
+  const rows = accountTransactions.filter(t => (filter === 'Alle' || t.type === filter) && (period === 'Alle' || new Date(t.date.includes('T') ? t.date : t.date + 'T12:00:00') >= periodStart) && `${t.name} ${t.note} ${t.id}`.toLowerCase().includes(query.toLowerCase()))
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize))
+  const currentPage = Math.min(page, pageCount)
+  const visibleRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const firstVisible = rows.length === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const lastVisible = Math.min(currentPage * pageSize, rows.length)
+  const booked = accountTransactions.filter(t => t.status === 'Gebucht')
+  const balance = booked.reduce((sum, t) => sum + t.amount, 0)
+  const received = booked.filter(t => t.amount > 0).reduce((sum, t) => sum + t.amount, 0)
+  const pending = accountTransactions.filter(t => t.status === 'Ausstehend').reduce((sum, t) => sum + t.amount, 0)
+  const now = new Date(); const todayKey = now.toISOString().slice(0, 10); const weekStart = new Date(now); weekStart.setDate(now.getDate() - 6)
+  const todayTotal = booked.filter(t => transactionDay(t.date) === todayKey).reduce((sum, t) => sum + t.amount, 0)
+  const weekTotal = booked.filter(t => new Date(t.date) >= weekStart).reduce((sum, t) => sum + t.amount, 0)
+  async function exportPdf() {
+    try {
+      const { jsPDF } = await import('jspdf')
+      const doc = new jsPDF(); doc.setFontSize(22); doc.text('gratilo. | Kontoauszug', 18, 24)
+      doc.setFontSize(10); doc.text('ECHTE TRANSAKTIONEN | Beträge in EUR', 18, 35)
+      rows.forEach((t, i) => { const y = 53 + i * 23; doc.setFontSize(11); doc.text(`${transactionDate(t.date)}  |  ${t.name}`, 18, y); doc.text(t.amount.toFixed(2), 190, y, { align: 'right' }); doc.setFontSize(9); doc.text(`${t.id}  /  ${t.type}  /  ${t.status}`, 18, y + 7); doc.setDrawColor(220); doc.line(18, y + 12, 192, y + 12) })
+      doc.save('gratilo-transaktionen-demo.pdf'); setNotice('PDF wurde erstellt.')
+    } catch { setError('Der PDF-Export ist fehlgeschlagen. Bitte versuche es erneut.') }
+  }
+  async function togglePaymentPage() {
+    const next = !active
+    setActive(next)
+    try {
+      const updated = await api<Profile>('/users/profile', { firstName: profile.firstName, lastName: profile.lastName, organisation: profile.organisation, street: profile.street, city: profile.city, phone: profile.phone, country: profile.country, newsletter: profile.newsletter, profileImage, paymentEnabled: next }, session.accessToken, 'PUT')
+      onProfile(updated)
+      setNotice(next ? 'Deine Zahlungsseite ist wieder aktiv.' : 'Deine Zahlungsseite wurde deaktiviert.')
+    } catch (cause) {
+      setActive(!next)
+      setError(cause instanceof Error ? cause.message : 'Der Status der Zahlungsseite konnte nicht geändert werden.')
+    }
+  }
+  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setSaving(true); setError('')
+    const data = new FormData(event.currentTarget)
+    try {
+      const updated = await api<Profile>('/users/profile', { ...profile, profileImage, paymentEnabled: active, firstName: data.get('firstName'), lastName: data.get('lastName'), organisation: data.get('organisation'), phone: data.get('phone') }, session.accessToken, 'PUT')
+      onProfile(updated); setEditing(false); setNotice('Dein Profil wurde gespeichert.')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Speichern fehlgeschlagen.') }
+    finally { setSaving(false) }
+  }
+  return <div className="account-app">
+    {onboardingOpen && <div className="onboarding-page"><section className="onboarding-page-content" role="main" aria-labelledby="onboarding-title"><button className="onboarding-close" onClick={() => setOnboardingOpen(false)} aria-label="Onboarding schließen">×</button><span className="session-dialog-icon">✓</span><span className="step-label">STRIPE CONNECT</span><h2 id="onboarding-title">Auszahlungen einrichten</h2>{onboardingClientSecret ? <><div ref={onboardingContainer} className="stripe-onboarding-container" /><button className="solid-button" onClick={syncOnboarding}>Status bei Stripe prüfen</button></> : <><p>In der Demo werden Identität und Bankkonto simuliert. In der echten Umgebung werden diese Daten ausschließlich von Stripe erfasst.</p><div className="onboarding-steps"><span>✓ Persönliche Daten</span><span>✓ Identitätsprüfung</span><span>○ Bankkonto für Auszahlungen</span></div><button className="solid-button" onClick={completeDemoOnboarding}>Demo-Onboarding abschließen</button></>}<button className="text-button" onClick={() => setOnboardingOpen(false)}>Später fortsetzen</button></section></div>}
+    <header className="account-header"><a href="/account" className="brand" onClick={e => { e.preventDefault(); setEditing(false) }}><span className="brand-mark">g</span>gratilo<span className="brand-dot">.</span></a><nav aria-label="Kontonavigation"><a href="#overview" onClick={() => setEditing(false)} className={!editing ? 'selected' : ''}>Übersicht</a><a href="#profile" onClick={() => { setEditing(true); setError('') }}>Profil bearbeiten</a></nav><div className="account-user"><button className="logout" onClick={onLogout}>Abmelden <span aria-hidden="true">↗</span></button></div></header>
+    <main className="account-main" id="overview"><div className="account-heading"><div><span className="step-label">DEIN PERSÖNLICHES TRINKGELDKONTO</span><h1>Hallo{profile.firstName ? `, ${profile.firstName}` : ''}<span className="hello-dot">.</span></h1><p>Viele kleine Danke. Alles an einem Ort.</p></div><div className="heading-actions"><span className="demo-badge">✧ Live-Konto</span><div className="session-status"><div className="session-status-line"><span>Sitzung aktiv</span><strong>{Math.floor(sessionRemaining / 60000)}:{String(Math.floor(sessionRemaining / 1000) % 60).padStart(2, '0')}</strong></div><div className="session-track"><span style={{ width: `${Math.min(100, sessionRemaining / 3600000 * 100)}%` }} /></div><small>Automatische Abmeldung bei Ablauf</small></div></div></div>
+      {notice && <div className="message success" role="status">{notice}</div>}{error && <div className="message error" role="alert">{error}</div>}
+      {editing ? <section className="account-card profile-card" id="profile"><span className="step-label">DEINE DATEN</span><h2>Profil bearbeiten</h2><p className="muted">Hier bearbeitest du dein echtes Benutzerprofil.</p><form onSubmit={saveProfile}><fieldset disabled={saving}><div className="profile-image-picker"><div className="profile-image-preview">{profileImage ? <img src={profileImage} alt="Vorschau deines Profilbilds" /> : <span aria-hidden="true">♙</span>}</div><div><label htmlFor="edit-profile-image">Profilbild <span>(optional)</span></label><input id="edit-profile-image" type="file" accept="image/jpeg,image/png,image/webp" onChange={async event => { const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; setError(''); try { setProfileImage(await prepareProfileImage(file)) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Das Bild konnte nicht geladen werden.') } }} /><p className="hint">JPG, PNG oder WebP · bis 5 MB · quadratischer Ausschnitt</p>{profileImage && <button type="button" className="text-button" onClick={() => setProfileImage(null)}>Bild entfernen</button>}</div></div><div className="name-fields"><label>Vorname<input name="firstName" defaultValue={profile.firstName || ''} autoComplete="given-name" /></label><label>Nachname<input name="lastName" defaultValue={profile.lastName || ''} autoComplete="family-name" /></label></div><label>Betrieb<input name="organisation" defaultValue={profile.organisation || ''} autoComplete="organization" /></label><label>Telefon<input name="phone" type="tel" defaultValue={profile.phone || ''} autoComplete="tel" /></label><p className="muted">E-Mail: {profile.email}</p><div className="profile-actions"><button className="outline-button" type="button" onClick={() => { setProfileImage(profile.profileImage); setEditing(false) }}>Abbrechen</button><button className="solid-button" type="submit">{saving ? 'Wird gespeichert …' : 'Änderungen speichern'}</button></div></fieldset></form></section> : <>
+      <div className="account-grid"><div className="account-left"><section className="balance-card" aria-label="Kontostand"><div className="balance-top"><span>Dein Guthaben</span><span aria-hidden="true">↗</span></div><strong>{money(balance)}</strong><p>Aus gebuchten Zahlungseingängen und Auszahlungen</p><div className="balance-bottom"><span><i /> Dein Überblick. Dein gutes Gefühl.</span><span>EUR</span></div></section>
+      <div className="summary-grid"><section className="account-card summary-card"><span className="summary-icon">↙</span><div><span>Erhalten im September</span><strong>{money(received)}</strong><small>{booked.filter(t => t.amount > 0).length} kleine Danke</small></div></section><section className="account-card summary-card"><span className="summary-icon pending-icon">◷</span><div><span>Noch ausstehend</span><strong>{money(pending)}</strong><small>1 Zahlung in Bearbeitung</small></div></section></div><section className="account-card period-card"><div><span>Heute</span><strong>{money(todayTotal)}</strong></div><div><span>Diese Woche</span><strong>{money(weekTotal)}</strong></div><div><span>Dieser Monat</span><strong>{money(received)}</strong></div></section><section className="account-card payout-card"><div><span className={`status-pill ${onboardingReady ? "booked" : "pending"}`}>{onboardingReady ? "● Auszahlungen aktiv" : "○ Onboarding erforderlich"}</span><h3>Stripe Connect</h3><p>{onboardingReady ? "Dein Auszahlungskonto ist verbunden. Auszahlungen werden wöchentlich gebündelt." : "Schließe die Identitäts- und Auszahlungseinrichtung ab, damit dein QR-Code aktiv wird."}</p></div>{onboardingReady ? <div className="payout-action"><label htmlFor="payout-amount">Betrag (€)</label><input id="payout-amount" inputMode="decimal" placeholder="z. B. 5,00" value={payoutAmount} onChange={event => { setPayoutAmount(event.target.value); setPayoutError('') }} /><button className="outline-button" onClick={requestPayout}>Auszahlung anfordern&nbsp; ↗</button>{payoutError && <small className="payout-error" role="alert">{payoutError}</small>}</div> : <button className="outline-button" onClick={startOnboarding}>Onboarding starten&nbsp; ↗</button>}</section></div>
+      <aside className="account-card qr-panel"><div className="panel-title"><h2>Dein Danke-Code</h2><span className={`status-pill ${active ? 'booked' : 'inactive'}`}>{active ? '● Aktiv' : '○ Inaktiv'}</span></div><p>Scannen. Danke sagen. Freude machen.</p><div className={`qr-layout ${!active ? 'qr-disabled' : ''}`}>{profile.profileImage && <div className="dashboard-profile-image"><img src={profile.profileImage} alt="Dein Profilbild" /></div>}<div className="qr-frame">{active ? <QRCodeSVG value={paymentLink} size={132} marginSize={2} level="M" title="QR-Code zum Demo-Zahlungslink" /> : <div className="paused-qr">Ⅱ<span>Code pausiert</span></div>}</div><div><strong>Ein kleines Danke<br />ist nur einen Scan entfernt.</strong><span>Zeige deinen Code oder teile deinen persönlichen Link.</span></div></div><label className="payment-link-label" htmlFor="payment-link">Dein persönlicher Link</label><div className="copy-field"><input id="payment-link" value={paymentLink} readOnly disabled={!active} /><button disabled={!active} aria-label="Zahlungslink kopieren" onClick={async () => { try { await navigator.clipboard.writeText(paymentLink); setNotice('Zahlungslink kopiert.') } catch { setError('Bitte markiere den Link und kopiere ihn manuell.') } }}>Kopieren</button></div><button className="outline-button qr-toggle" onClick={togglePaymentPage}>{active ? 'Ⅱ  Deaktivieren' : '▷  Aktivieren'}</button><p className="qr-footnote">{active ? 'Deine Zahlungsseite ist für Trinkgelder geöffnet.' : 'Deine Zahlungsseite ist derzeit deaktiviert.'}</p></aside></div>
+      <section className="account-card transactions-panel"><div className="transactions-heading"><div><h2>Deine Transaktionen</h2><p>Jedes Danke auf einen Blick.</p></div><div className="export-actions"><button onClick={exportPdf}>↓ PDF exportieren</button><button onClick={() => { download(new Blob([csvContent(rows)], { type: 'text/csv;charset=utf-8;' }), 'gratilo-transaktionen.csv'); setNotice('CSV wurde erstellt.') }}>↓ CSV exportieren</button></div></div><div className="transaction-tools"><div className="filter-tabs" role="group" aria-label="Transaktionen filtern">{['Alle', 'Trinkgeld', 'Auszahlung'].map(value => <button key={value} aria-pressed={filter === value} className={filter === value ? 'active' : ''} onClick={() => { setFilter(value); setPage(1) }}>{value === 'Trinkgeld' ? 'Eingänge' : value === 'Auszahlung' ? 'Auszahlungen' : 'Alle'}</button>)}</div><div className="period-tabs" role="group" aria-label="Zeitraum filtern">{['Alle', 'Heute', 'Diese Woche', 'Diesen Monat', 'Letzte 30 Tage'].map(value => <button key={value} aria-pressed={period === value} className={period === value ? 'active' : ''} onClick={() => { setPeriod(value); setPage(1) }}>{value}</button>)}</div><input type="search" aria-label="Transaktionen suchen" placeholder="Name oder Referenz suchen …" value={query} onChange={e => { setQuery(e.target.value); setPage(1) }} /><label className="page-size-label">Anzeigen<select aria-label="Anzahl Transaktionen pro Seite" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}><option value="50">50</option><option value="100">100</option><option value="200">200</option></select></label></div><div className="table-scroll"><table><thead><tr><th>Transaktion</th><th>Datum</th><th>Status</th><th className="amount-col">Betrag</th></tr></thead><tbody>{visibleRows.map(t => <tr key={t.id}><td><div className="transaction-person"><span className={`transaction-icon ${t.amount < 0 ? 'outgoing' : ''}`}>{t.amount < 0 ? '↗' : '↙'}</span><div><strong>{t.name}</strong><small>{t.note}</small>{t.amount > 0 && <span className="payment-method"><span className="payment-method-icon" aria-hidden="true">{paymentMethodIcon(t.paymentMethod)}</span>{paymentMethodLabel(t.paymentMethod)}</span>}</div></div></td><td className="date-cell">{transactionDate(t.date)}</td><td><span className={`status-pill ${t.status === 'Gebucht' ? 'booked' : 'pending'}`}>{t.status}</span></td><td className={`amount-col ${t.amount > 0 ? 'positive' : ''}`}>{t.amount > 0 ? '+' : '−'} {money(Math.abs(t.amount))}</td></tr>)}</tbody></table>{rows.length === 0 && <div className="empty-transactions">Keine passenden Transaktionen gefunden.<button className="text-button" onClick={() => { setQuery(''); setFilter('Alle'); setPage(1) }}>Filter zurücksetzen</button></div>}</div><nav className="pagination" aria-label="Transaktionsseiten">{Array.from({ length: pageCount }, (_, index) => index + 1).map(number => <button key={number} className={number === currentPage ? "active" : ""} aria-current={number === currentPage ? "page" : undefined} onClick={() => setPage(number)}>{number}</button>)}</nav><div className="table-footer"><span>{firstVisible}–{lastVisible} von {rows.length} Transaktionen angezeigt</span><span>Exporte enthalten die gefilterte Ansicht.</span></div></section><p className="demo-note">Aktuelle Daten aus deinem Gratilo-Konto.</p></>}
+      <footer className="account-footer"><span>© {new Date().getFullYear()} Gratilo</span><span>Mit einem Danke fängt es an.</span></footer>
+    </main></div>
+}
+export function DemoPayment() {
+  const recipientPath = location.pathname.split('/').pop() || ''
+  const [recipient, setRecipient] = useState('')
+  const [recipientProfile, setRecipientProfile] = useState<{ userId?: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean } | null>(null)
+  const [amount, setAmount] = useState(500); const [amountInput, setAmountInput] = useState('5,00'); const [message, setMessage] = useState(''); const [quote, setQuote] = useState<TipQuote>({ tipAmountMinor: 500, serviceFeeMinor: 0, totalAmountMinor: 500, currency: 'EUR', serviceFeePercent: 0, fixedFeeMinor: 0 }); const [busy, setBusy] = useState(false); const [error, setError] = useState('')
+  type TipQuote = { tipAmountMinor: number; serviceFeeMinor: number; totalAmountMinor: number; currency: string; serviceFeePercent: number; fixedFeeMinor: number }
+  useEffect(() => {
+    const profileRecipient = location.pathname.endsWith('/success') ? sessionStorage.getItem('tipster:last-recipient') : recipientPath
+    if (!profileRecipient) return
+    const profileEndpoint = location.pathname.endsWith('/success') || /^[0-9a-f-]{36}$/i.test(profileRecipient) ? profileRecipient : `payment/${profileRecipient}`
+    fetch(`/user-service/users/public/${profileEndpoint}`).then(r => r.ok ? r.json() : Promise.reject()).then(profile => { setRecipientProfile(profile); if (profile.userId) setRecipient(profile.userId) }).catch(() => setRecipientProfile(null))
+  }, [recipient])
+  useEffect(() => {
+    if (location.pathname.endsWith('/success')) return
+    const refreshTimer = window.setInterval(() => window.location.reload(), 120000)
+    return () => window.clearInterval(refreshTimer)
+  }, [])
+  useEffect(() => {
+    if (location.pathname.endsWith('/success')) return
+    if (!recipient) return
+    fetch(`/payment-service/tips/${recipient}/quote?amountMinor=${amount}`).then(r => r.ok ? r.json() : Promise.reject()).then(result => { setQuote(result); setError('') }).catch(() => setError('Der Betrag konnte nicht berechnet werden.'))
+  }, [amount, recipient])
+  useEffect(() => {
+    if (!location.pathname.endsWith('/success')) return
+    const sessionId = new URLSearchParams(location.search).get('session_id')
+    if (sessionId) fetch(`/payment-service/tips/checkout/confirm?sessionId=${encodeURIComponent(sessionId)}`).catch(() => undefined)
+  }, [])
+  async function pay() { setBusy(true); setError(''); try { const demo = new URLSearchParams(location.search).get('demo') === '1'; if (!recipient) throw new Error('Zahlungsseite wird noch geladen. Bitte kurz warten.'); sessionStorage.setItem('tipster:last-recipient', recipient); const response = await fetch(`/payment-service/tips/${recipient}/checkout${demo ? '?demo=1' : ''}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipAmountMinor: amount, message: message || null, idempotencyKey: crypto.randomUUID() }) }); const result = await response.json(); if (!response.ok) throw new Error(result.message || 'Zahlung konnte nicht gestartet werden.'); if (result.checkoutUrl) location.href = result.checkoutUrl } catch (cause) { setError(cause instanceof Error ? cause.message : 'Zahlung konnte nicht gestartet werden.') } finally { setBusy(false) } }
+  if (location.pathname.endsWith('/success')) { const recipientId = sessionStorage.getItem('tipster:last-recipient'); return <main className="demo-payment account-card">{recipientProfile?.profileImage && <img className="tip-profile-image" src={recipientProfile.profileImage} alt="Profilbild" />}<span className="brand">gratilo.</span><h1>Danke! ❤️</h1><p>Dein Trinkgeld wurde erfolgreich übermittelt.</p><button className="outline-button" onClick={() => { if (recipientId) location.href = `/pay/${recipientId}`; else history.back() }}>Zurück zur Zahlungsseite&nbsp; ←</button></main> }
+  const recipientName = [recipientProfile?.firstName, recipientProfile?.lastName].filter(Boolean).join(" ") || recipientProfile?.organisation || "deinen Service"
+  if (recipientProfile && recipientProfile.paymentEnabled === false) return <main className="tip-page"><div className="tip-brand"><span className="brand-mark">g</span>gratilo<span className="brand-dot">.</span></div><section className="tip-card"><span className="step-label">ZAHLUNGSSEITE</span><h1>Momentan nicht verfügbar.</h1><p className="tip-intro">Diese Zahlungsseite ist derzeit deaktiviert. Bitte versuche es später erneut.</p><div className="message success" role="status">Der Danke-Code wurde vom Anbieter vorübergehend pausiert.</div></section></main>
+  return <main className="tip-page"><div className="tip-brand"><span className="brand-mark">g</span>gratilo<span className="brand-dot">.</span></div><section className="tip-card">{recipientProfile?.profileImage && <img className="tip-profile-image" src={recipientProfile.profileImage} alt={`Profilbild von ${recipientName}`} />}<span className="step-label">DIGITALES TRINKGELD</span><h1>Trinkgeld für {recipientName}.</h1><p className="tip-intro">Unterstütze den Service direkt und unkompliziert.</p>{error && <div className="message error" role="alert">{error}</div>}<div className="tip-amounts">{[100, 200, 500, 1000].map(value => <button key={value} className={amount === value ? 'selected' : ''} onClick={() => { setAmount(value); setAmountInput((value / 100).toFixed(2).replace('.', ',')) }}>{money(value / 100)}</button>)}</div><label className="other-amount">Anderer Betrag (mindestens 1,00 €)<div className="euro-input"><input inputMode="decimal" min="1" step="0.01" value={amountInput} onChange={event => { const raw = event.target.value; setAmountInput(raw); const parsed = Number(raw.replace(',', '.')); if (Number.isFinite(parsed) && parsed >= 1) setAmount(Math.round(parsed * 100)) }} onBlur={() => { const parsed = Number(amountInput.replace(',', '.')); if (!Number.isFinite(parsed) || parsed < 1) { setAmount(100); setAmountInput('1,00') } else setAmountInput(parsed.toFixed(2).replace('.', ',')) }} /><span>€</span></div></label><label>Nachricht <span>(optional)</span><textarea maxLength={500} value={message} onChange={event => setMessage(event.target.value)} placeholder="Sag noch ein paar nette Worte …" /></label><div className="tip-breakdown"><div><span>Trinkgeld</span><strong>{money(quote.tipAmountMinor / 100)}</strong></div>{quote.serviceFeeMinor > 0 && <div><span>Servicegebühr</span><strong>{money(quote.serviceFeeMinor / 100)}</strong></div>}<div className="tip-total"><span>Gesamt</span><strong>{money(quote.totalAmountMinor / 100)}</strong></div></div><button className="tip-pay" disabled={busy || amount < 100} onClick={pay}>{busy ? 'Wird vorbereitet …' : `Mit Apple Pay, Google Pay oder Karte zahlen`}<span>→</span></button><p className="tip-note">Sichere Zahlung über Stripe. Du brauchst kein Konto.</p></section></main>
+}

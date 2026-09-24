@@ -36,11 +36,20 @@ public class UserEntity {
     @Column(name = "last_name")
     private String lastName;
 
+    @Column(name = "profile_image", columnDefinition = "TEXT")
+    private String profileImage;
+
     private String organisation;
     private String street;
     private String city;
     private String phone;
     private String country;
+
+    @Column(name = "payment_url_path", length = 512, unique = true)
+    private String paymentUrlPath;
+
+    @Column(name = "payment_enabled", nullable = false)
+    private boolean paymentEnabled = true;
 
     @Column(nullable = false)
     private boolean newsletter;
