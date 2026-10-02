@@ -4,3 +4,17 @@ build
 .vite
 *.tsbuildinfo
 npm-debug.log*
+
+# Never copy local credentials or infrastructure artifacts into images.
+**/.env
+**/.env.*
+**/.terraform
+**/*.tfstate*
+**/*.tfvars
+**/*.tfvars.json
+**/*.tfplan
+**/*.plan
+**/.aws
+**/*.pem
+**/*.key
+infrastructure

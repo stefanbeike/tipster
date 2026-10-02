@@ -9,7 +9,7 @@ A web-based platform for digital tipping and personal micropayments via QR codes
 
 ## Prerequisites
 
-- Java 17 or newer
+- Java 21
 - Node.js 20 or newer with npm
 
 ## Build and test
@@ -43,7 +43,7 @@ von Tockly und werden von IntelliJ beim Öffnen des Projekts eingelesen:
 - `Tipster payment-service (Local Debug)` – Port `8082`
 
 1. Projekt als Gradle-Projekt öffnen bzw. im Gradle-Fenster neu laden. Für das
-   Gradle-JVM und die Java-Toolchain ein JDK 17 konfigurieren.
+   Gradle-JVM und die Java-Toolchain ein JDK 21 konfigurieren.
 2. Infrastruktur starten: `./docker-compose/start_infra.sh`. Unter Windows den
    Befehl in WSL/Git Bash ausführen oder im Projektverzeichnis
    `docker compose -f docker-compose/docker-compose.infra.yml up -d` verwenden,
@@ -164,7 +164,7 @@ The public production URL is **https://gratilo.com**. The frontend uses same-ori
 API paths (`/user-service/` and `/payment-service/`), so no frontend API hostname
 is baked into the image. Nginx forwards these paths to the backend services.
 
-The release workflow enables the `prd` Micronaut environment in ECS and sets
+The Terraform task definition enables the `prd` Micronaut environment in ECS and sets
 `FRONTEND_BASE_URL=https://gratilo.com` for both backends. It also sets Stripe
 redirects to `https://gratilo.com/pay/success?session_id={CHECKOUT_SESSION_ID}`
 and `https://gratilo.com/pay/cancelled`. This covers verification emails,
@@ -172,19 +172,12 @@ password resets, pool invitations, payment QR links and Stripe Connect.
 Existing localhost payment links are migrated only with the `prd` Liquibase
 context; local development continues to use `http://localhost:3000`.
 
-Infrastructure prerequisites (managed outside this repository):
+Die Terraform-Vorbereitung in [`infrastructure/`](infrastructure/README.md) beschreibt
+VPC, HTTPS-Load-Balancer, ECS Fargate, ECR, RDS PostgreSQL und Secrets Manager in
+`eu-central-1`. Sie wird ausschließlich lokal über `AWS_PROFILE` verwaltet.
+Die bisherigen AWS-Publish- und ECS-Deploy-Jobs sind gesperrt; es gibt kein
+automatisches AWS-Deployment. AWS-Releases bleiben bis zu einer ausdrücklich freigegebenen Umstellung deaktiviert.
 
-- Point the DNS record for `gratilo.com` to the production load balancer.
-- Configure an HTTPS listener with a certificate covering `gratilo.com` and route
-  this host to the frontend target group on port 80. Redirect HTTP to HTTPS.
-- Make the backend service names `user-service:8081` and `payment-service:8082`
-  reachable from the frontend ECS task (matching the Nginx upstreams).
-- Set the Stripe webhook endpoint to
-  `https://gratilo.com/payment-service/webhooks/stripe` and configure its signing
-  secret in the payment-service task. Production initially stays in the Stripe
-  sandbox: use the matching `sk_test_` secret, `pk_test_` publishable key and
-  sandbox webhook signing secret. Deploying to `gratilo.com` does not switch
-  Stripe to live mode.
-
-The workflow updates existing ECS services; it does not provision DNS records,
-certificates, load balancer listeners or service discovery.
+Die neue Umgebung übernimmt keine bestehenden AWS-Ressourcen oder Daten.
+Vor einem Apply sind der Plan, mögliche Namenskonflikte, Datenübernahme,
+Secret-Befüllung und DNS-Umschaltung separat zu prüfen und ausdrücklich freizugeben.

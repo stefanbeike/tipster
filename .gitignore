@@ -11,4 +11,33 @@ frontend/.vite/
 
 .env
 .env.*
-.env.example
+!.env.example
+
+# Terraform state, plans, local inputs and credentials (keep provider lock files)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.plan
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+*.tfbackend
+.aws/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.log
+.DS_Store
+Thumbs.db

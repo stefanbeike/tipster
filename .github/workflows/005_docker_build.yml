@@ -20,7 +20,7 @@ name: Build & Push Images
       aws_region:
         required: false
         type: string
-        default: eu-north-1
+        default: eu-central-1
       aws_account_id:
         required: false
         type: string
@@ -30,6 +30,8 @@ name: Build & Push Images
         default: true
 jobs:
   build:
+    # AWS publishing is disabled; infrastructure is managed locally via AWS_PROFILE.
+    if: ${{ inputs.registry != 'ecr' || !inputs.push }}
     runs-on: self-hosted
     steps:
     - uses: actions/checkout@v4
@@ -53,14 +55,6 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    - uses: aws-actions/configure-aws-credentials@v4
-      if: ${{ inputs.push && inputs.registry == 'ecr' }}
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ inputs.aws_region }}
-    - uses: aws-actions/amazon-ecr-login@v2
-      if: ${{ inputs.push && inputs.registry == 'ecr' }}
     - name: Build image
       env:
         STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY }}
