@@ -157,3 +157,34 @@ The user service listens on `http://localhost:8081` and exposes:
 
 PostgreSQL is shared by the services (`tipsterdb`), but data and Liquibase
 tables are isolated in the `user_mgmt` and `payment_mgmt` schemas.
+
+## Production: gratilo.com
+
+The public production URL is **https://gratilo.com**. The frontend uses same-origin
+API paths (`/user-service/` and `/payment-service/`), so no frontend API hostname
+is baked into the image. Nginx forwards these paths to the backend services.
+
+The release workflow enables the `prd` Micronaut environment in ECS and sets
+`FRONTEND_BASE_URL=https://gratilo.com` for both backends. It also sets Stripe
+redirects to `https://gratilo.com/pay/success?session_id={CHECKOUT_SESSION_ID}`
+and `https://gratilo.com/pay/cancelled`. This covers verification emails,
+password resets, pool invitations, payment QR links and Stripe Connect.
+Existing localhost payment links are migrated only with the `prd` Liquibase
+context; local development continues to use `http://localhost:3000`.
+
+Infrastructure prerequisites (managed outside this repository):
+
+- Point the DNS record for `gratilo.com` to the production load balancer.
+- Configure an HTTPS listener with a certificate covering `gratilo.com` and route
+  this host to the frontend target group on port 80. Redirect HTTP to HTTPS.
+- Make the backend service names `user-service:8081` and `payment-service:8082`
+  reachable from the frontend ECS task (matching the Nginx upstreams).
+- Set the Stripe webhook endpoint to
+  `https://gratilo.com/payment-service/webhooks/stripe` and configure its signing
+  secret in the payment-service task. Production initially stays in the Stripe
+  sandbox: use the matching `sk_test_` secret, `pk_test_` publishable key and
+  sandbox webhook signing secret. Deploying to `gratilo.com` does not switch
+  Stripe to live mode.
+
+The workflow updates existing ECS services; it does not provision DNS records,
+certificates, load balancer listeners or service discovery.

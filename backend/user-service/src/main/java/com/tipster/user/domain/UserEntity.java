@@ -51,8 +51,14 @@ public class UserEntity {
     @Column(name = "payment_enabled", nullable = false)
     private boolean paymentEnabled = true;
 
+    @Column(name = "stripe_onboarding_completed", nullable = false)
+    private boolean stripeOnboardingCompleted = false;
+
     @Column(nullable = false)
     private boolean newsletter;
+
+    @Column(name = "deleted_at")
+    private OffsetDateTime deletedAt;
 
     @Column(name = "email_verified", nullable = false)
     private boolean emailVerified;

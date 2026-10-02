@@ -1,0 +1,97 @@
+name: Deploy ECS Service
+'on':
+  workflow_call:
+    inputs:
+      cluster:
+        required: true
+        type: string
+      service_name:
+        required: true
+        type: string
+      task_definition_family:
+        required: true
+        type: string
+      container_name:
+        required: true
+        type: string
+      image:
+        required: true
+        type: string
+      aws_region:
+        required: true
+        type: string
+      production:
+        type: boolean
+        default: false
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ inputs.aws_region }}
+    - name: Download current task definition
+      run: |
+        aws ecs describe-task-definition \
+          --task-definition "${{ inputs.task_definition_family }}" \
+          --region "${{ inputs.aws_region }}" \
+          --query taskDefinition \
+          > task-definition.json
+    - name: Render new task definition
+      run: |
+        jq --arg CONTAINER_NAME "$CONTAINER_NAME" --arg IMAGE "$IMAGE" --argjson PRODUCTION "$PRODUCTION" '
+          def productionEnvironment:
+            if .name == "user-service" or .name == "payment-service" then
+              [{name: "MICRONAUT_ENVIRONMENTS", value: "prd"},
+               {name: "FRONTEND_BASE_URL", value: "https://gratilo.com"}]
+              + (if .name == "payment-service" then
+                  [{name: "STRIPE_SUCCESS_URL", value: "https://gratilo.com/pay/success?session_id={CHECKOUT_SESSION_ID}"},
+                   {name: "STRIPE_CANCEL_URL", value: "https://gratilo.com/pay/cancelled"}]
+                 else [] end)
+            else [] end;
+          if any(.containerDefinitions[]; .name == $CONTAINER_NAME) then
+            .containerDefinitions |= map(
+              if .name == $CONTAINER_NAME then
+                .image = $IMAGE
+                | if $PRODUCTION then
+                    productionEnvironment as $overrides
+                    | ($overrides | map(.name)) as $keys
+                    | .environment = ([ (.environment // [])[] | select(.name as $key | $keys | index($key) | not) ] + $overrides)
+                    | .secrets = [(.secrets // [])[] | select(.name as $key | $keys | index($key) | not)]
+                  else . end
+              else . end)
+          else error("Container not found in task definition") end
+          | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
+        ' task-definition.json > new-task-definition.json
+      env:
+        PRODUCTION: ${{ inputs.production }}
+        CONTAINER_NAME: ${{ inputs.container_name }}
+        IMAGE: ${{ inputs.image }}
+    - name: Register new task definition revision
+      id: register-task-definition
+      run: |
+        TASK_DEFINITION_ARN=$(aws ecs register-task-definition \
+          --region "${{ inputs.aws_region }}" \
+          --cli-input-json file://new-task-definition.json \
+          --query 'taskDefinition.taskDefinitionArn' \
+          --output text)
+
+        echo "task_definition_arn=$TASK_DEFINITION_ARN" >> "$GITHUB_OUTPUT"
+        echo "Registered task definition: $TASK_DEFINITION_ARN"
+    - name: Update ECS service
+      run: |
+        aws ecs update-service \
+          --cluster "${{ inputs.cluster }}" \
+          --service "${{ inputs.service_name }}" \
+          --task-definition "${{ steps.register-task-definition.outputs.task_definition_arn }}" \
+          --force-new-deployment \
+          --region "${{ inputs.aws_region }}"
+    - name: Wait for service to become stable
+      run: |
+        aws ecs wait services-stable \
+          --cluster "${{ inputs.cluster }}" \
+          --services "${{ inputs.service_name }}" \
+          --region "${{ inputs.aws_region }}"

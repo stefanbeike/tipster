@@ -67,13 +67,14 @@ public final class UserRequests {
             @Size(min = 8) String newPassword,
             String confirmPassword,
             @Size(max = 140000) String profileImage,
-            Boolean paymentEnabled
+            Boolean paymentEnabled,
+            Boolean stripeOnboardingCompleted
     ) {
         public ProfileUpdate(String firstName, String lastName, String organisation, String street, String city,
                              String phone, String country, Boolean newsletter, String currentPassword,
                              String newPassword, String confirmPassword, String profileImage) {
             this(firstName, lastName, organisation, street, city, phone, country, newsletter, currentPassword,
-                    newPassword, confirmPassword, profileImage, null);
+                    newPassword, confirmPassword, profileImage, null, null);
         }
     }
 

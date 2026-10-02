@@ -1,0 +1,15 @@
+frontend:
+  base-url: https://gratilo.com
+
+micronaut:
+  server:
+    cors:
+      configurations:
+        default:
+          allowed-origins:
+            - https://gratilo.com
+
+liquibase:
+  datasources:
+    default:
+      contexts: prd

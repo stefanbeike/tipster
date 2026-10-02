@@ -10,4 +10,9 @@
     <include file="user_mgmt/005_payment_url_full_link.sql" relativeToChangelogFile="true"/>
     <include file="user_mgmt/006_remove_payment_path.sql" relativeToChangelogFile="true"/>
     <include file="user_mgmt/007_payment_enabled.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/008_stripe_onboarding.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/009_pools.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/010_pool_invitation_expiry.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/011_soft_delete.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/012_production_payment_urls.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

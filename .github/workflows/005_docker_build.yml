@@ -1,0 +1,87 @@
+name: Build & Push Images
+'on':
+  workflow_call:
+    inputs:
+      service:
+        required: true
+        type: string
+      registry:
+        required: false
+        type: string
+        default: ghcr
+      image_tag:
+        required: false
+        type: string
+        default: ''
+      push_latest:
+        required: false
+        type: boolean
+        default: false
+      aws_region:
+        required: false
+        type: string
+        default: eu-north-1
+      aws_account_id:
+        required: false
+        type: string
+        default: ''
+      push:
+        type: boolean
+        default: true
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+    - uses: actions/checkout@v4
+    - name: Resolve image
+      run: |-
+        case "$SERVICE" in frontend|user-service|payment-service) ;; *) exit 1;; esac
+        case "$REGISTRY" in ghcr|ecr) ;; *) exit 1;; esac
+        VERSION="${IMAGE_TAG:-${GITHUB_REF_NAME}}"
+        if [[ -z "$IMAGE_TAG" && "$GITHUB_REF" != refs/tags/* ]]; then VERSION="sha-${GITHUB_SHA}"; fi
+        [[ "$VERSION" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]] || exit 1
+        if [[ "$REGISTRY" == ecr ]]; then
+          IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/tipster/$SERVICE"
+        else
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/tipster-$SERVICE"
+        fi
+        echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+        echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+    - uses: docker/login-action@v3
+      if: ${{ inputs.push && inputs.registry == 'ghcr' }}
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - uses: aws-actions/configure-aws-credentials@v4
+      if: ${{ inputs.push && inputs.registry == 'ecr' }}
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ inputs.aws_region }}
+    - uses: aws-actions/amazon-ecr-login@v2
+      if: ${{ inputs.push && inputs.registry == 'ecr' }}
+    - name: Build image
+      env:
+        STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY }}
+      run: |-
+        if [[ "$SERVICE" == frontend ]]; then
+          docker build --build-arg "VITE_STRIPE_PUBLISHABLE_KEY=$STRIPE_PUBLISHABLE_KEY" -t "$IMAGE:$VERSION" ./frontend
+        else
+          docker build -f "backend/$SERVICE/Dockerfile" -t "$IMAGE:$VERSION" .
+        fi
+    - name: Push image
+      if: ${{ inputs.push }}
+      run: |-
+        docker push "$IMAGE:$VERSION"
+        if [[ "$PUSH_LATEST" == true ]]; then
+          docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
+        fi
+    env:
+      SERVICE: ${{ inputs.service }}
+      REGISTRY: ${{ inputs.registry }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      AWS_ACCOUNT_ID: ${{ inputs.aws_account_id }}
+      AWS_REGION: ${{ inputs.aws_region }}
+      PUSH_LATEST: ${{ inputs.push_latest }}

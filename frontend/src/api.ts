@@ -1,6 +1,6 @@
 export interface Session { accessToken: string; email: string; userId: string }
 
-export async function api<T = { message: string }>(path: string, body?: unknown, token?: string, method?: 'PUT'): Promise<T> {
+export async function api<T = { message: string }>(path: string, body?: unknown, token?: string, method?: 'PUT' | 'PATCH' | 'DELETE'): Promise<T> {
   let response: Response
   try {
     response = await fetch(path.startsWith('/payment-service') ? path : `/user-service${path}`, {

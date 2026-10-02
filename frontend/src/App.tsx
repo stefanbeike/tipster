@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import { api, type Session } from './api'
 import { prepareProfileImage } from './profileImage'
-import { Dashboard, DemoPayment, type Profile } from './Dashboard'
+import { Dashboard, DemoPayment, PoolInvitation, PoolInvitationLogin, type Profile } from './Dashboard'
 
 type Page = 'login' | 'register' | 'forgot' | 'reset' | 'verify'
 const pages: Record<string, Page> = { '/register': 'register', '/forgot-password': 'forgot', '/reset-password': 'reset', '/auth/verify': 'verify' }
@@ -47,7 +48,8 @@ export function App() {
         const result = await api<Session>('/auth/login', { email, password })
         const userProfile = await api<Profile>('/users/me', undefined, result.accessToken)
         setProfile(userProfile)
-        navigate('/account')
+        const invitationPath = sessionStorage.getItem('gratilo.invitationPath')
+        if (invitationPath) { sessionStorage.removeItem('gratilo.invitationPath'); navigate(invitationPath) } else navigate('/account')
         setSessionExpired(false)
         setSession(result)
       } else if (page === 'register') {
@@ -66,13 +68,15 @@ export function App() {
     finally { setBusy(false) }
   }
   if (location.pathname.startsWith('/pay/')) return <DemoPayment />
+  if (location.pathname.startsWith('/pool/invitations/') && !session) return <PoolInvitationLogin onLogin={() => { sessionStorage.setItem('gratilo.invitationPath', location.pathname); window.location.assign('/login') }} onRegister={() => { sessionStorage.setItem('gratilo.invitationPath', location.pathname); window.location.assign('/register') }} />
+  if (location.pathname.startsWith('/pool/invitations/') && session) return <PoolInvitation session={session} onSwitchUser={() => { setSession(null); setProfile(null); setSessionExpired(false) }} />
   if (session && profile) return <Dashboard session={session} profile={profile} onProfile={setProfile} onLogout={(expired = false) => { setSession(null); setProfile(null); setSessionExpired(expired === true); navigate('/login') }} />
   if (sessionExpired) return <><main className="shell" /><div className="session-dialog-backdrop"><section className="session-dialog" role="dialog" aria-modal="true" aria-labelledby="session-expired-title"><span className="session-dialog-icon">◷</span><h2 id="session-expired-title">Deine Sitzung ist abgelaufen</h2><p>Aus Sicherheitsgründen wurdest du automatisch abgemeldet. Melde dich erneut an, um weiterzumachen.</p><button className="primary" onClick={() => setSessionExpired(false)}>Anmelden <span aria-hidden="true">→</span></button></section></div></>
   return <main className="shell">
     <aside className="story">
       <a className="brand" href="/login" onClick={event => { event.preventDefault(); if (!busy) navigate('/login') }} aria-label="Gratilo Startseite"><span className="brand-mark">g</span>gratilo<span className="brand-dot">.</span></a>
       <div className="story-content"><span className="eyebrow">GOOD PEOPLE DESERVE MORE</span><h1>Trinkgeld<br />geht jetzt<span className="serif"> einfach.</span></h1><p>Wertschätzung zeigen. Einfach scannen. Direkt unterstützen.</p>
-        <div className="illustration" aria-hidden="true"><div className="orbit" /><span className="spark spark-one">✦</span><span className="spark spark-two">✦</span><div className="thanks-card"><span className="heart">♡</span><strong>Das war großartig!</strong><span>Ein kleines Danke für dich.</span><div className="amount">+ 5,00 € <span>♥</span></div></div><div className="note">Scan to Tip <span>♡</span></div></div>
+        <div className="illustration" aria-hidden="true"><div className="orbit" /><span className="spark spark-one">✦</span><span className="spark spark-two">✦</span><div className="thanks-card"><span className="landing-qr"><QRCodeSVG value={`${location.origin}/pay/gratilo-001`} size={58} marginSize={1} level="M" title="QR-Code zum Trinkgeld" /></span><strong>Das war großartig!</strong><span>Ein kleines Danke für dich.</span><div className="amount">+ 5,00 € <span>♥</span></div></div><div className="note">Scan to Tip <span>♡</span></div></div>
         <div className="story-caption"><span /> DANKE FÜR GROSSARTIGE MOMENTE</div>
       </div><p className="story-footer">EINFACH. SCHNELL. DIREKT.</p>
     </aside>

@@ -6,6 +6,7 @@ import com.tipster.user.domain.UserEntity;
 import com.tipster.user.repository.UserRepository;
 import com.tipster.user.service.EmailVerificationService;
 import com.tipster.user.service.PaymentUrlPoolService;
+import com.tipster.user.service.PoolService;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.annotation.Body;
 import io.micronaut.http.annotation.Controller;
@@ -27,12 +28,13 @@ public class UserController {
     private final UserRepository userRepository;
     private final EmailVerificationService emailVerificationService;
     private final PaymentUrlPoolService paymentUrlPoolService;
+    private final PoolService poolService;
 
-    public UserController(UserRepository userRepository, EmailVerificationService emailVerificationService, PaymentUrlPoolService paymentUrlPoolService) {
-        this.userRepository = userRepository; this.emailVerificationService = emailVerificationService; this.paymentUrlPoolService = paymentUrlPoolService;
+    public UserController(UserRepository userRepository, EmailVerificationService emailVerificationService, PaymentUrlPoolService paymentUrlPoolService, PoolService poolService) {
+        this.userRepository = userRepository; this.emailVerificationService = emailVerificationService; this.paymentUrlPoolService = paymentUrlPoolService; this.poolService = poolService;
     }
 
-    public UserController(UserRepository userRepository, EmailVerificationService emailVerificationService) { this(userRepository, emailVerificationService, null); }
+    public UserController(UserRepository userRepository, EmailVerificationService emailVerificationService) { this(userRepository, emailVerificationService, null, null); }
 
     @Secured(SecurityRule.IS_ANONYMOUS)
     @Post("/register")
@@ -77,7 +79,7 @@ public class UserController {
     @Get("/public/payment/{path}")
     public HttpResponse<?> publicPaymentProfile(String path) {
         UserEntity user = paymentUrlPoolService.userForPath(path);
-        return user == null ? HttpResponse.notFound() : HttpResponse.ok(UserResponses.PublicProfile.from(user));
+        return user == null ? HttpResponse.notFound() : HttpResponse.ok(UserResponses.PublicProfile.from(user, poolService == null ? null : poolService.publicPoolName(user.getId())));
     }
 
     @Secured(SecurityRule.IS_AUTHENTICATED)
@@ -92,8 +94,8 @@ public class UserController {
     @Secured(SecurityRule.IS_ANONYMOUS)
     @Get("/public/{id}")
     public HttpResponse<?> publicProfile(UUID id) {
-        return userRepository.findById(id)
-                .map(user -> HttpResponse.ok(UserResponses.PublicProfile.from(user)))
+        return userRepository.findById(id).filter(user -> user.getDeletedAt() == null)
+                .map(user -> HttpResponse.ok(UserResponses.PublicProfile.from(user, poolService == null ? null : poolService.publicPoolName(user.getId()))))
                 .orElseGet(HttpResponse::notFound);
     }
 
@@ -137,12 +139,29 @@ public class UserController {
         user.setNewsletter(Boolean.TRUE.equals(request.newsletter()));
         user.setProfileImage(request.profileImage());
         if (request.paymentEnabled() != null) user.setPaymentEnabled(request.paymentEnabled());
+        if (request.stripeOnboardingCompleted() != null) user.setStripeOnboardingCompleted(request.stripeOnboardingCompleted());
         return HttpResponse.ok(UserResponses.Profile.from(userRepository.update(user)));
+    }
+
+    @Secured(SecurityRule.IS_AUTHENTICATED)
+    @io.micronaut.http.annotation.Delete("/account")
+    @Transactional
+    public HttpResponse<?> deleteAccount(Authentication authentication) {
+        var maybeUser = authenticatedUser(authentication);
+        if (maybeUser.isEmpty()) return HttpResponse.notFound(new UserResponses.Message("Benutzer wurde nicht gefunden"));
+        UserEntity user = maybeUser.get();
+        if (poolService != null) poolService.removeUser(user.getId());
+        user.setDeletedAt(java.time.OffsetDateTime.now());
+        user.setPaymentEnabled(false);
+        user.setProfileImage(null);
+        user.setPaymentUrlPath(null);
+        userRepository.update(user);
+        return HttpResponse.ok(new UserResponses.Message("Dein Konto wurde geschlossen."));
     }
 
     private java.util.Optional<UserEntity> authenticatedUser(Authentication authentication) {
         try {
-            return userRepository.findById(UUID.fromString(authentication.getName()));
+            return userRepository.findById(UUID.fromString(authentication.getName())).filter(user -> user.getDeletedAt() == null);
         } catch (IllegalArgumentException exception) {
             return java.util.Optional.empty();
         }

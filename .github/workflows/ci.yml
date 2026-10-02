@@ -1,0 +1,32 @@
+name: Tipster CI
+'on':
+  pull_request:
+    branches:
+    - main
+  push:
+    branches:
+    - main
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  unit-tests:
+    uses: ./.github/workflows/002_unit_tests.yml
+  sonarqube:
+    needs:
+    - unit-tests
+    if: ${{ vars.SONAR_PROJECT_KEY != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    uses: ./.github/workflows/004_a_sonar.yml
+    with:
+      project_name: tipster
+      sonar_organization: ${{ vars.SONAR_ORGANIZATION }}
+      sonar_project_key: ${{ vars.SONAR_PROJECT_KEY }}
+    secrets:
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  trivy:
+    needs:
+    - unit-tests
+    if: ${{ needs.unit-tests.result == 'success' }}
+    uses: ./.github/workflows/004_b_trivy.yml
+    secrets: inherit

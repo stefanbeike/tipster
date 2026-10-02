@@ -37,6 +37,7 @@ public class AuthController {
     @Post("/login")
     public HttpResponse<?> login(@Body @Valid UserRequests.Login request) {
         return userRepository.findByEmail(request.email().toLowerCase())
+                .filter(user -> user.getDeletedAt() == null)
                 .filter(user -> BCrypt.checkpw(request.password(), user.getPasswordHash()))
                 .map(user -> {
                     if (!user.isEmailVerified()) {

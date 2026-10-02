@@ -1,16 +1,16 @@
-FROM gradle:8.10-jdk17 AS build
+FROM gradle:8.10-jdk21 AS build
 WORKDIR /home/gradle/project
 
 COPY settings.gradle build.gradle gradle.properties gradlew ./
 COPY gradle ./gradle
 COPY backend/user-service/build.gradle backend/user-service/
 
-RUN gradle --no-daemon :backend:user-service:dependencies
+RUN bash ./gradlew --no-daemon :backend:user-service:dependencies
 
 COPY . .
-RUN gradle --no-daemon :backend:user-service:runnerJar
+RUN bash ./gradlew --no-daemon :backend:user-service:runnerJar
 
-FROM eclipse-temurin:17-jre-jammy AS runtime
+FROM eclipse-temurin:21-jre-jammy AS runtime
 WORKDIR /app
 
 RUN apt-get update \

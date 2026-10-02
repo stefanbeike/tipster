@@ -14,9 +14,13 @@ import java.util.*;
 import java.util.regex.Pattern;
 @Singleton
 public class StripeCheckoutService {
-    private final TransactionRepository transactions; private final ConnectedAccountRepository accounts; private final StripeConnectService connect; private final String secret, successUrl, cancelUrl;
-    public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect, @Value("${stripe.secret-key:}") String secret, @Value("${stripe.success-url}") String successUrl, @Value("${stripe.cancel-url}") String cancelUrl) { this.transactions=transactions; this.accounts=accounts; this.connect=connect; this.secret=secret; this.successUrl=absoluteUrl(successUrl, "http://localhost:3000/pay/success?session_id={CHECKOUT_SESSION_ID}"); this.cancelUrl=absoluteUrl(cancelUrl, "http://localhost:3000/pay/cancelled"); }
+    private final TransactionRepository transactions; private final ConnectedAccountRepository accounts; private final StripeConnectService connect; private final String secret, successUrl, cancelUrl; private final double feePercent; private final long fixedFeeMinor;
+    public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect, @Value("${stripe.secret-key:}") String secret, @Value("${stripe.success-url}") String successUrl, @Value("${stripe.cancel-url}") String cancelUrl, @Value("${stripe.fee-percent:1.5}") double feePercent, @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor) { this.transactions=transactions; this.accounts=accounts; this.connect=connect; this.secret=secret; this.successUrl=absoluteUrl(successUrl); this.cancelUrl=absoluteUrl(cancelUrl); this.feePercent=feePercent; this.fixedFeeMinor=fixedFeeMinor; }
     public boolean isConfigured() { return !secret.isBlank(); }
+    /** Stripe test keys are used by the local sandbox. Pool payouts are
+     * recorded as separate sandbox transactions because a real Checkout
+     * Session can only have one destination account. */
+    public boolean isSandbox() { return secret.isBlank() || secret.startsWith("sk_test_"); }
     @Transactional
     public boolean confirmSession(String sessionId) throws Exception {
         if (secret.isBlank() || sessionId == null || sessionId.isBlank()) return false;
@@ -40,7 +44,7 @@ public class StripeCheckoutService {
         if (secret.isBlank()) throw new IllegalStateException("STRIPE_SECRET_KEY ist im Payment-Service nicht konfiguriert.");
         connect.ensureBusinessWebsite(account.get().getStripeAccountId(), connect.paymentUrl(recipient.toString()));
         connect.ensureTransferCapability(account.get().getStripeAccountId());
-        long fee = TipPricing.serviceFeeMinor(request.tipAmountMinor()), total = request.tipAmountMinor() + fee;
+        long fee = request.feeCovered() ? TipPricing.serviceFeeMinor(request.tipAmountMinor(), feePercent, fixedFeeMinor) : 0, total = request.tipAmountMinor() + fee;
         var tx = new TransactionEntity(); tx.setAccountUserId(recipient); tx.setAmountMinor(request.tipAmountMinor()); tx.setCurrency("EUR"); tx.setType(TransactionType.TIP); tx.setStatus(TransactionStatus.PENDING); tx.setDescription(request.message()); tx.setIdempotencyKey(request.idempotencyKey()); tx.setProvider("STRIPE"); tx = transactions.save(tx);
         String form = param("mode", "payment") + param("line_items[0][price_data][currency]", "eur") + param("line_items[0][price_data][unit_amount]", Long.toString(total)) + param("line_items[0][price_data][product_data][name]", "Trinkgeld") + param("line_items[0][quantity]", "1") + param("metadata[transaction_id]", tx.getId().toString())  + param("payment_intent_data[transfer_data][destination]", account.get().getStripeAccountId()) + param("payment_intent_data[metadata][transaction_id]", tx.getId().toString()) + param("payment_intent_data[metadata][tip_amount_minor]", Long.toString(request.tipAmountMinor())) + param("success_url", successUrl) + param("cancel_url", cancelUrl);
         var response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("https://api.stripe.com/v1/checkout/sessions")).header("Authorization", "Bearer " + secret).header("Content-Type", "application/x-www-form-urlencoded").header("Idempotency-Key", request.idempotencyKey() == null ? tx.getId().toString() : request.idempotencyKey()).POST(HttpRequest.BodyPublishers.ofString(form)).build(), HttpResponse.BodyHandlers.ofString());
@@ -51,13 +55,13 @@ public class StripeCheckoutService {
         String id = match(response.body(), "\\\"id\\\"\\s*:\\s*\\\"([^\\\"]+)"); String url = match(response.body(), "\\\"url\\\"\\s*:\\s*\\\"([^\\\"]+)"); tx.setProviderReference(id); tx.setPaymentMethod(match(response.body(), "\\\"payment_method_types\\\"\\s*:\\s*\\[\\s*\\\"([^\\\"]+)")); transactions.update(tx); return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false));
     }
     private static String param(String key,String value) { return enc(key)+"="+enc(value)+"&"; } private static String enc(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); } private static String match(String value,String regex) { var m=Pattern.compile(regex).matcher(value); return m.find()?m.group(1):null; }
-    private static String absoluteUrl(String value, String fallback) {
-        try {
-            var uri = URI.create(value == null ? "" : value.trim());
-            var scheme = uri.getScheme();
-            return uri.getHost() != null && ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) ? uri.toString() : fallback;
-        } catch (IllegalArgumentException ignored) {
-            return fallback;
+    static String absoluteUrl(String value) {
+        String url = value == null ? "" : value.trim();
+        // Stripe replaces this placeholder after checkout; braces are not URI characters.
+        URI uri = URI.create(url.replace("{CHECKOUT_SESSION_ID}", "checkout-session"));
+        if (uri.getHost() == null || !("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))) {
+            throw new IllegalArgumentException("Stripe redirect URL must be an absolute HTTP(S) URL");
         }
+        return url;
     }
 }
