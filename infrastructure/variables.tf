@@ -55,23 +55,24 @@ variable "desired_count" {
   }
 }
 
-variable "mail_host" {
-  description = "External SMTP host accessible over TLS/587; MailHog is not deployed."
-  type        = string
-}
-
 variable "mail_from_email" {
-  description = "Verified sender address at your SMTP provider."
+  description = "Sender in the SES-verified domain; default is noreply@<domain_name>."
   type        = string
+  default     = null
+  validation {
+    condition     = var.mail_from_email == null ? true : can(regex("^[^@\\s]+@${replace(var.domain_name, ".", "\\.")}$", var.mail_from_email))
+    error_message = "The sender must belong to domain_name."
+  }
 }
 
 variable "db_instance_class" {
-  type    = string
-  default = "db.t4g.micro"
+  description = "Small starting size: Graviton db.t4g.micro (2 vCPUs, 1 GiB RAM)."
+  type        = string
+  default     = "db.t4g.micro"
 }
 
 variable "db_multi_az" {
-  description = "Production default; affects cost."
+  description = "Start with Single-AZ to minimize cost; enable Multi-AZ when failover is required."
   type        = bool
-  default     = true
+  default     = false
 }

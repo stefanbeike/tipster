@@ -41,3 +41,6 @@ terraform.rc
 *.log
 .DS_Store
 Thumbs.db
+
+# Human-readable Terraform plans may contain sensitive infrastructure data.
+**/deployment-plan.txt

@@ -32,15 +32,16 @@ locals {
     user-service = {
       port = 8081
       environment = {
-        DATASOURCES_DEFAULT_USERNAME                    = "tipster_user"
-        APP_NAME                                        = "Gratilo"
-        MAIL_FROM_NAME                                  = "Gratilo"
-        MAIL_FROM_EMAIL                                 = var.mail_from_email
-        MAIL_HOST                                       = var.mail_host
-        MAIL_PORT                                       = "587"
-        MAIL_SMTP_AUTH                                  = "true"
-        MAIL_SMTP_STARTTLS_ENABLE                       = "true"
-        JAVAMAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED = "true"
+        DATASOURCES_DEFAULT_USERNAME                                 = "tipster_user"
+        APP_NAME                                                     = "Gratilo"
+        MAIL_FROM_NAME                                               = "Gratilo"
+        MAIL_FROM_EMAIL                                              = local.ses_from_email
+        MAIL_HOST                                                    = local.ses_smtp_host
+        MAIL_PORT                                                    = "587"
+        MICRONAUT_SERVER_CORS_CONFIGURATIONS_DEFAULT_ALLOWED_ORIGINS = "https://${var.domain_name}"
+        MAIL_SMTP_AUTH                                               = "true"
+        MAIL_SMTP_STARTTLS_ENABLE                                    = "true"
+        JAVAMAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED              = "true"
       }
       secrets = {
         DATASOURCES_DEFAULT_PASSWORD     = "user_db_password"

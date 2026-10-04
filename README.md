@@ -174,9 +174,12 @@ context; local development continues to use `http://localhost:3000`.
 
 Die Terraform-Vorbereitung in [`infrastructure/`](infrastructure/README.md) beschreibt
 VPC, HTTPS-Load-Balancer, ECS Fargate, ECR, RDS PostgreSQL und Secrets Manager in
-`eu-central-1`. Sie wird ausschließlich lokal über `AWS_PROFILE` verwaltet.
+`eu-central-1`. Sie wird lokal oder über den manuell ausgelösten Terraform-Workflow mit dem
+lokalen `AWS_PROFILE` des Self-hosted-Runners verwaltet.
 Die bisherigen AWS-Publish- und ECS-Deploy-Jobs sind gesperrt; es gibt kein
-automatisches AWS-Deployment. AWS-Releases bleiben bis zu einer ausdrücklich freigegebenen Umstellung deaktiviert.
+automatisches AWS-Deployment bei Pushes. Der neue Workflow `terraform.yml` erstellt
+zunächst einen Plan und wendet diesen nur über den expliziten Apply-Pfad an;
+die Environment `terraform-prd` muss dafür mit Required reviewers geschützt sein.
 
 Die neue Umgebung übernimmt keine bestehenden AWS-Ressourcen oder Daten.
 Vor einem Apply sind der Plan, mögliche Namenskonflikte, Datenübernahme,

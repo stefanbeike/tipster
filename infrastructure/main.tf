@@ -203,7 +203,7 @@ resource "aws_cloudwatch_log_group" "app" {
 }
 
 resource "aws_ecs_cluster" "main" {
-  name = "${local.name}-iac"
+  name = "gratilo-${var.environment}-iac"
   setting {
     name  = "containerInsights"
     value = "enabled"

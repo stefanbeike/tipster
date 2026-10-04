@@ -8,7 +8,7 @@ output "application_url" {
   value = "https://${var.domain_name}"
 }
 output "load_balancer_dns_name" {
-  description = "DNS target; DNS is intentionally not modified by this configuration."
+  description = "Web DNS target; only SES DNS records are managed by this configuration."
   value       = aws_lb.main.dns_name
 }
 output "load_balancer_zone_id" {
@@ -41,4 +41,21 @@ output "bootstrap_network_configuration" {
       assignPublicIp = "DISABLED"
     }
   }
+}
+
+output "ses_identity_arn" {
+  value = aws_ses_domain_identity.app.arn
+}
+output "ses_smtp_endpoint" {
+  value = local.ses_smtp_host
+}
+output "ses_from_email" {
+  value = local.ses_from_email
+}
+output "ses_smtp_iam_user" {
+  description = "IAM user only; SMTP credentials must be created outside Terraform and stored in Secrets Manager."
+  value       = aws_iam_user.ses_smtp.name
+}
+output "ses_route53_zone_id" {
+  value = data.aws_route53_zone.mail.zone_id
 }
